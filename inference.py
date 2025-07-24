@@ -23,7 +23,10 @@ def crop_breast_height(image, margin_top=10):
     threshold = int(np.quantile(image.data.float(), 0.9))
     foreground = image.data > threshold
     fg_rows = foreground[0].sum(axis=(0, 2))
-    top = min(max(512-int(torch.argwhere(fg_rows).max()) - margin_top, 0), 256)
+    if torch.any(fg_rows):
+        top = min(max(512-int(torch.argwhere(fg_rows).max()) - margin_top, 0), 256)
+    else:
+        top = 0  # 안전한 기본값
     bottom = 256-top
     return tio.Crop((0,0, bottom, top, 0, 0))
 
@@ -145,7 +148,10 @@ def run():
                     except StopIteration:
                         print(f"Warning: No .mha file found in {path}")
             
-            t2_mha_file = next((INPUT_PATH / "images/t2-breast-mri").glob("*.mha"))
+            try:
+                t2_mha_file = next((INPUT_PATH / "images/t2-breast-mri").glob("*.mha"))
+            except StopIteration:
+                raise FileNotFoundError("t2-breast-mri not found")
 
             # --- 2. Process images and build input tensor ---
             final_input_tensors = []
@@ -204,6 +210,7 @@ def run():
                 ], dim=1)
                 probs = cumulative_probs[:, :-1] - cumulative_probs[:, 1:]
                 probs = F.softmax(probs, dim=1)  # 확률 정규화
+                probs = torch.clamp(probs, min=0.0, max=1.0)  # 안전장치: 0-1 범위로 제한
                 
                 # 각 클래스의 확률
                 bilateral_results[side] = {
